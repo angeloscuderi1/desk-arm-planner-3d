@@ -1,0 +1,1962 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Desk Arm Planner — 3D Room View</title>
+<style>
+  :root {
+    --bg: #15171a;
+    --panel: rgba(24, 26, 30, 0.88);
+    --panel-border: rgba(255, 255, 255, 0.1);
+    --text: #eef0f3;
+    --muted: #9aa3b2;
+    --accent: #d9822b;
+    --accent-soft: rgba(217, 130, 43, 0.18);
+    --ok: #38b87c;
+    --warn: #e6a23c;
+    --err: #e55353;
+    --input-bg: rgba(255, 255, 255, 0.06);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+    font-size: 13px;
+  }
+  #canvas-wrap {
+    position: fixed;
+    inset: 0;
+  }
+  canvas { display: block; width: 100%; height: 100%; }
+
+  /* Top-left floating bar */
+  .top-bar {
+    position: fixed;
+    top: 14px;
+    left: 14px;
+    max-width: calc(100vw - 380px);
+    z-index: 20;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    pointer-events: none;
+  }
+  .top-bar > * { pointer-events: auto; }
+  .pill-group {
+    display: inline-flex;
+    background: var(--panel);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    padding: 3px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
+  }
+  .pill-btn {
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    padding: 6px 12px;
+    border-radius: 7px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+  }
+  .pill-btn:hover { color: var(--text); }
+  .pill-btn.active {
+    background: var(--accent);
+    color: #fff;
+  }
+
+  /* Bottom-left hint */
+  .hint-bar {
+    position: fixed;
+    bottom: 14px;
+    left: 14px;
+    z-index: 20;
+    background: var(--panel);
+    backdrop-filter: blur(10px);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    padding: 6px 11px;
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.01em;
+    pointer-events: none;
+  }
+
+  /* Right sidebar */
+  .sidebar {
+    position: fixed;
+    top: 14px;
+    right: 14px;
+    bottom: 14px;
+    width: 340px;
+    max-width: calc(100vw - 28px);
+    z-index: 25;
+    background: var(--panel);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--panel-border);
+    border-radius: 14px;
+    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transition: transform 0.22s ease;
+  }
+  .sidebar.collapsed {
+    transform: translateX(calc(100% + 20px));
+  }
+  .sidebar-header {
+    padding: 14px 16px 12px;
+    border-bottom: 1px solid var(--panel-border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .sidebar-header h1 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  .sidebar-header .sub {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+  .icon-btn {
+    border: 1px solid var(--panel-border);
+    background: var(--input-bg);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 5px 9px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .icon-btn:hover { background: rgba(255,255,255,0.12); }
+
+  .sidebar-toggle-fab {
+    position: fixed;
+    top: 14px;
+    right: 14px;
+    z-index: 24;
+    display: none;
+    background: var(--panel);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--panel-border);
+    color: var(--text);
+    border-radius: 10px;
+    padding: 8px 12px;
+    font-weight: 600;
+    font-size: 12px;
+    cursor: pointer;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
+  }
+  .sidebar.collapsed + .sidebar-toggle-fab { display: block; }
+
+  .sidebar-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 16px 20px;
+  }
+  .sidebar-body::-webkit-scrollbar { width: 6px; }
+  .sidebar-body::-webkit-scrollbar-thumb {
+    background: rgba(255,255,255,0.16);
+    border-radius: 3px;
+  }
+
+  .status-card {
+    border-radius: 10px;
+    padding: 10px 12px;
+    margin-bottom: 12px;
+    border: 1px solid;
+    font-size: 12px;
+    line-height: 1.4;
+  }
+  .status-card.ok {
+    background: rgba(56, 184, 124, 0.12);
+    border-color: rgba(56, 184, 124, 0.35);
+  }
+  .status-card.warn {
+    background: rgba(230, 162, 60, 0.12);
+    border-color: rgba(230, 162, 60, 0.4);
+  }
+  .status-card.err {
+    background: rgba(229, 83, 83, 0.14);
+    border-color: rgba(229, 83, 83, 0.45);
+  }
+  .status-title {
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 4px;
+  }
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+    flex-shrink: 0;
+  }
+  .ok .dot { background: var(--ok); }
+  .warn .dot { background: var(--warn); }
+  .err .dot { background: var(--err); }
+
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .metric-box {
+    background: var(--input-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    padding: 8px 10px;
+  }
+  .metric-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+  }
+  .metric-val {
+    font-size: 14px;
+    font-weight: 700;
+    margin-top: 2px;
+  }
+  .metric-val.ok { color: var(--ok); }
+  .metric-val.warn { color: var(--warn); }
+  .metric-val.err { color: var(--err); }
+
+  .section {
+    border-top: 1px solid var(--panel-border);
+    padding-top: 12px;
+    margin-top: 12px;
+  }
+  .section-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    margin: 0 0 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .field {
+    margin-bottom: 10px;
+  }
+  .field-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 4px;
+    font-size: 12px;
+  }
+  .field-val {
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    color: var(--text);
+  }
+  select, button.action-btn {
+    width: 100%;
+    padding: 7px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--panel-border);
+    background: var(--input-bg);
+    color: var(--text);
+    font-size: 12px;
+    cursor: pointer;
+  }
+  select option { background: #1c1f24; color: #fff; }
+  button.action-btn {
+    background: var(--accent);
+    border-color: transparent;
+    color: #fff;
+    font-weight: 600;
+    margin-top: 6px;
+    transition: filter 0.15s;
+  }
+  button.action-btn:hover { filter: brightness(1.1); }
+  button.action-btn.secondary {
+    background: var(--input-bg);
+    border-color: var(--panel-border);
+    color: var(--text);
+  }
+
+  input[type="range"] {
+    width: 100%;
+    accent-color: var(--accent);
+    cursor: pointer;
+    margin: 0;
+  }
+
+  .check-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 6px 0;
+    font-size: 12px;
+    color: var(--text);
+    cursor: pointer;
+  }
+  .check-row input { accent-color: var(--accent); cursor: pointer; }
+
+  .note-box {
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.45;
+    background: rgba(255,255,255,0.03);
+    border-radius: 8px;
+    padding: 8px 10px;
+    margin-top: 8px;
+  }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.168.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.168.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+<div id="canvas-wrap"></div>
+
+<!-- Top-Left Controls -->
+<div class="top-bar">
+  <div class="pill-group" role="group" aria-label="Room Layout">
+    <button class="pill-btn active" id="btn-layout-east">East Window (Current)</button>
+    <button class="pill-btn" id="btn-layout-south">South Window (Corner Sim)</button>
+  </div>
+  <div class="pill-group" role="group" aria-label="Mode">
+    <button class="pill-btn active" id="btn-mode-desk">Desk Position</button>
+    <button class="pill-btn" id="btn-mode-sim">Sim Position</button>
+  </div>
+  <div class="pill-group" role="group" aria-label="Camera Presets">
+    <button class="pill-btn active" data-cam="overview">Room Overview</button>
+    <button class="pill-btn" data-cam="desk">Desk Front</button>
+    <button class="pill-btn" data-cam="driver">Driver POV</button>
+    <button class="pill-btn" data-cam="top">Top Plan</button>
+  </div>
+</div>
+
+<div class="hint-bar">
+  Drag to orbit · Right-drag to pan · Scroll to zoom · Grid = 12 in · Dashed ring = arm reach
+</div>
+
+<!-- Right Sidebar -->
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-header">
+    <div>
+      <h1>Desk Arm Planner 3D</h1>
+      <div class="sub">East-wall bamboo desk · Playseat Challenge X · LG 39″ 5K2K</div>
+    </div>
+    <button class="icon-btn" id="btn-collapse" title="Hide panel">✕</button>
+  </div>
+
+  <div class="sidebar-body">
+    <div id="status-card" class="status-card ok">
+      <div class="status-title"><span class="dot"></span><span id="status-heading">Checking geometry…</span></div>
+      <div id="status-detail"></div>
+      <button class="action-btn" id="btn-auto-clamp" style="display:none;">Move clamp to optimal spot</button>
+    </div>
+
+    <div class="metrics-grid">
+      <div class="metric-box">
+        <div class="metric-label">Desk Reach</div>
+        <div class="metric-val" id="m-desk">—</div>
+      </div>
+      <div class="metric-box">
+        <div class="metric-label">Sim Reach</div>
+        <div class="metric-val" id="m-sim">—</div>
+      </div>
+      <div class="metric-box">
+        <div class="metric-label">Valid Clamp Zone</div>
+        <div class="metric-val" id="m-zone">—</div>
+      </div>
+      <div class="metric-box">
+        <div class="metric-label" id="lbl-wall-metric">Back Wall Clearance</div>
+        <div class="metric-val" id="m-wall">—</div>
+      </div>
+    </div>
+    <div id="corner-warning" class="note-box" style="display:none; margin-top:0; margin-bottom:10px; color:#ff9e9e; border:1px solid rgba(229,83,83,0.45); background:rgba(229,83,83,0.12);"></div>
+
+    <div class="section" style="border-top:none; margin-top:0; padding-top:0;">
+      <div class="section-title">Hardware</div>
+      <div class="field">
+        <div class="field-head"><span>Monitor arm</span></div>
+        <select id="sel-arm">
+          <option value="ergotron_ext">Ergotron LX Tall Pole + 9″ Extension</option>
+          <option value="ergotron">Ergotron LX Tall Pole (standard)</option>
+          <option value="mountup">MOUNTUP Gas Arm (15″ pole)</option>
+          <option value="msi">MSI Arm (~18.0″ reach)</option>
+        </select>
+      </div>
+      <div class="field">
+        <div class="field-head"><span>LG 39″ curvature</span></div>
+        <select id="sel-curve">
+          <option value="1500">1500R (LG 39GX950B 5K2K actual)</option>
+          <option value="800">800R (LG 39GS95QE deeper curve)</option>
+        </select>
+      </div>
+      <div id="hw-warning" class="note-box" style="display:none; color:#f0c27b; border:1px solid rgba(230,162,60,0.35);"></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Arm Mount (Shared for Both Modes)</div>
+      <div class="field">
+        <div class="field-head"><span>Clamp from desk left edge</span><span class="field-val" id="v-clamp">8.5″</span></div>
+        <input type="range" id="s-clamp" min="2" max="46" step="0.5" value="8.5" />
+      </div>
+      <div class="field">
+        <div class="field-head"><span>Collar height on pole (above desk)</span><span class="field-val" id="v-collar">8.0″</span></div>
+        <input type="range" id="s-collar" min="2" max="12.25" step="0.5" value="8.0" />
+      </div>
+      <div class="field">
+        <div class="field-head"><span id="lbl-wallgap">Desk gap from east wall</span><span class="field-val" id="v-wallgap">2.5″</span></div>
+        <input type="range" id="s-wallgap" min="0.5" max="10" step="0.5" value="2.5" />
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">
+        <span>Monitor Target</span>
+        <span id="lbl-mode-tag" style="color:var(--accent);">Desk</span>
+      </div>
+      <div class="field">
+        <div class="field-head"><span>Screen X from desk left edge</span><span class="field-val" id="v-mx">24.0″</span></div>
+        <input type="range" id="s-mx" min="-30" max="44" step="0.5" value="24" />
+      </div>
+      <div class="field">
+        <div class="field-head"><span>Screen Z from desk back edge</span><span class="field-val" id="v-mz">9.5″</span></div>
+        <input type="range" id="s-mz" min="4" max="36" step="0.5" value="9.5" />
+      </div>
+      <div class="field">
+        <div class="field-head"><span>Screen center above floor</span><span class="field-val" id="v-my">44.5″</span></div>
+        <input type="range" id="s-my" min="28" max="60" step="0.5" value="44.5" />
+      </div>
+      <div class="field">
+        <div class="field-head"><span>Swivel (− faces left, + faces right)</span><span class="field-val" id="v-swivel">0°</span></div>
+        <input type="range" id="s-swivel" min="-90" max="60" step="1" value="0" />
+      </div>
+      <div class="field">
+        <div class="field-head"><span>Desk height in this position</span><span class="field-val" id="v-deskh">30.0″</span></div>
+        <input type="range" id="s-deskh" min="30" max="47" step="0.5" value="30" />
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Playseat Challenge X</div>
+      <div class="field" id="field-corner-margin" style="display:none;">
+        <div class="field-head"><span>Rig left side from east wall</span><span class="field-val" id="v-cornermargin">10.0″</span></div>
+        <input type="range" id="s-cornermargin" min="0.5" max="16" step="0.5" value="10.0" />
+      </div>
+      <div class="field" id="field-dresser-z" style="display:none;">
+        <div class="field-head"><span>Dresser edge from east wall</span><span class="field-val" id="v-dresserz">83.15″</span></div>
+        <input type="range" id="s-dresserz" min="70" max="90" step="0.5" value="83.15" />
+      </div>
+      <div class="field">
+        <div class="field-head"><span>Gap between rig &amp; desk</span><span class="field-val" id="v-riggap">2.0″</span></div>
+        <input type="range" id="s-riggap" min="0" max="12" step="0.5" value="2" />
+      </div>
+      <div class="field">
+        <div class="field-head"><span id="lbl-rigwall">Rig front from east wall</span><span class="field-val" id="v-rigwall">4.0″</span></div>
+        <input type="range" id="s-rigwall" min="1" max="24" step="0.5" value="4" />
+      </div>
+      <div class="field">
+        <div class="field-head"><span>Rig angle (yaw)</span><span class="field-val" id="v-rigyaw">0°</span></div>
+        <input type="range" id="s-rigyaw" min="-20" max="35" step="1" value="0" />
+      </div>
+      <div class="field">
+        <div class="field-head"><span>Driver eye height above floor</span><span class="field-val" id="v-eye">34.0″</span></div>
+        <input type="range" id="s-eye" min="28" max="42" step="0.5" value="34" />
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Display Options</div>
+      <label class="check-row"><input type="checkbox" id="chk-walls" checked /> Show room walls &amp; furniture</label>
+      <label class="check-row"><input type="checkbox" id="chk-grid" checked /> Show 12″ floor grid &amp; reach ring</label>
+      <label class="check-row"><input type="checkbox" id="chk-ghost" checked /> Show both Desk &amp; Sim ghosts</label>
+      <button class="action-btn secondary" id="btn-copy">Copy setup summary</button>
+    </div>
+  </div>
+</aside>
+<button class="sidebar-toggle-fab" id="btn-expand">Controls ☰</button>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ============================================================
+// ROOM & HARDWARE CONSTANTS (1 unit = 1 inch, Y = up)
+// Coordinate convention:
+//   Z = 0    -> East wall (behind desk, sliding oak window)
+//   Z = 150  -> West wall (sliding wood closet doors; ~122" from desk front)
+//   X = 0    -> North wall (grey couch wall)
+//   X = 138  -> South wall (second window, tower fan, walnut dresser)
+// ============================================================
+const ROOM = {
+  widthX: 121,      // North (0) to South (121) — exact 10'1"
+  depthZ: 121,      // East (0) to West (121) — exact 10'1"
+  heightY: 96,      // 8 ft ceiling
+  couchWidth: 76,   // along North wall
+  couchDepth: 38,   // out from North wall
+  deskWidth: 48,
+  deskDepth: 30.25,
+  deskThick: 1.25,
+  rigWidth: 20.5,
+  rigLength: 63,
+  dresserW: 34.5,
+  dresserD: 18,
+  dresserH: 48,
+  dresserWestGap: 3.35,
+  pcW: 9,
+  pcD: 17.5
+};
+// In East-wall layout: Couch (38") + Rig (20.5") + ~4" margin -> desk left edge at X=62.5"
+const DESK_LEFT_X = 62.5;
+
+const ARMS = {
+  ergotron_ext: {
+    name: 'Ergotron LX Tall Pole + 9″ Extension',
+    poleHeight: 13.25,
+    segments: [9.1, 9.0],
+    liftLen: 14.2,
+    maxLiftDeg: 27,
+    headLen: 2.8,
+    maxWeightLb: 18,
+    warning: 'Adding the 9″ extension drops Ergotron LX capacity to 18 lb (and the 4.7″-deep LG 39″ 5K2K increases leverage). Use a steel clamp reinforcement plate on the bamboo desktop.'
+  },
+  ergotron: {
+    name: 'Ergotron LX Tall Pole (standard)',
+    poleHeight: 13.25,
+    segments: [9.1],
+    liftLen: 14.2,
+    maxLiftDeg: 27,
+    headLen: 2.8,
+    maxWeightLb: 25,
+    warning: ''
+  },
+  mountup: {
+    name: 'MOUNTUP Gas Arm (15″ pole)',
+    poleHeight: 15.0,
+    segments: [8.3],
+    liftLen: 11.7,
+    maxLiftDeg: 37,
+    headLen: 2.9,
+    maxWeightLb: 22,
+    warning: ''
+  },
+  msi: {
+    name: 'MSI Arm (~18.0″ reach)',
+    poleHeight: 12.0,
+    segments: [7.5],
+    liftLen: 10.5,
+    maxLiftDeg: 35,
+    headLen: 2.5,
+    maxWeightLb: 20,
+    warning: ''
+  }
+};
+
+// State
+const state = {
+  layout: 'east', // 'east' (current) | 'south' (other window, sim in SE corner)
+  mode: 'desk', // 'desk' | 'sim'
+  armKey: 'ergotron_ext',
+  curveR_mm: 1500,
+  clampX: 8.5,       // from desk left edge
+  collarH: 8.0,      // above desk top (spans both Desk & Sim at 30" min desk height)
+  wallGap: 2.5,        // desk back edge from wall behind desk
+  cornerMargin: 10.0,  // in 'south' layout: 10" gap fits the 9" PC tower on the left of the Playseat!
+  dresserEdgeZ: 83.15, // 121 - 34.5 (dresser) - 3.35 (closet gap) = 83.15" from East wall
+  rigGap: 2.0,         // gap between Playseat right side and desk left edge
+  rigWall: 2.0,        // Playseat pedal front from wall behind desk
+  rigYaw: 0,           // degrees (0 = straight parallel to walls)
+  driverEyeY: 34.0,
+  showWalls: true,
+  showGrid: true,
+  showGhost: true,
+  positions: {
+    desk: { mx: 24.0, mz: 10.5, my: 43.5, swivel: 0, deskH: 30.0 },
+    sim:  { mx: -12.25, mz: 23.0, my: 35.0, swivel: 0, deskH: 30.0 }
+  }
+};
+
+// Animated current values (for smooth Desk <-> Sim transitions)
+const anim = {
+  mx: state.positions.desk.mx,
+  mz: state.positions.desk.mz,
+  my: state.positions.desk.my,
+  swivel: state.positions.desk.swivel,
+  deskH: state.positions.desk.deskH
+};
+
+// ============================================================
+// PROCEDURAL TEXTURES (Oak hardwood, Bamboo, Rug, Lake Como art)
+// ============================================================
+function makeWoodTexture(baseHex, grainHex, plankCount = 8, isBamboo = false) {
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = 512;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = baseHex;
+  ctx.fillRect(0, 0, 512, 512);
+
+  const plankH = 512 / plankCount;
+  for (let i = 0; i < plankCount; i++) {
+    const y = i * plankH;
+    const shade = (Math.random() - 0.5) * 18;
+    ctx.fillStyle = shadeColor(baseHex, shade);
+    ctx.fillRect(0, y, 512, plankH);
+
+    // Wood grain streaks
+    ctx.strokeStyle = grainHex;
+    ctx.globalAlpha = isBamboo ? 0.14 : 0.22;
+    for (let g = 0; g < (isBamboo ? 18 : 26); g++) {
+      ctx.beginPath();
+      const gy = y + Math.random() * plankH;
+      ctx.lineWidth = isBamboo ? 1 : (0.8 + Math.random() * 1.8);
+      ctx.moveTo(0, gy);
+      ctx.bezierCurveTo(170, gy + (Math.random() - 0.5) * 5, 340, gy + (Math.random() - 0.5) * 5, 512, gy);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+
+    // Plank seam
+    ctx.fillStyle = isBamboo ? 'rgba(120,75,30,0.16)' : 'rgba(55,30,10,0.38)';
+    ctx.fillRect(0, y, 512, isBamboo ? 1 : 2);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+function shadeColor(hex, amt) {
+  const num = parseInt(hex.replace('#', ''), 16);
+  const r = Math.min(255, Math.max(0, (num >> 16) + amt));
+  const g = Math.min(255, Math.max(0, ((num >> 8) & 0xff) + amt));
+  const b = Math.min(255, Math.max(0, (num & 0xff) + amt));
+  return `rgb(${r|0},${g|0},${b|0})`;
+}
+
+function makeArtTexture() {
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 384;
+  const ctx = c.getContext('2d');
+  // White mat border
+  ctx.fillStyle = '#f2f0eb';
+  ctx.fillRect(0, 0, 256, 384);
+  // Inner photo (Lake Como boat scene from IMG_4733)
+  const x = 22, y = 26, w = 212, h = 332;
+  const sky = ctx.createLinearGradient(0, y, 0, y + 140);
+  sky.addColorStop(0, '#9bbbd4');
+  sky.addColorStop(1, '#dce6ec');
+  ctx.fillStyle = sky;
+  ctx.fillRect(x, y, w, 130);
+  // Mountains
+  ctx.fillStyle = '#4e6c82';
+  ctx.beginPath();
+  ctx.moveTo(x, y + 140);
+  ctx.lineTo(x + 48, y + 68);
+  ctx.lineTo(x + 112, y + 92);
+  ctx.lineTo(x + 172, y + 54);
+  ctx.lineTo(x + w, y + 84);
+  ctx.lineTo(x + w, y + 150);
+  ctx.closePath();
+  ctx.fill();
+  // Lake water
+  const water = ctx.createLinearGradient(0, y + 135, 0, y + h);
+  water.addColorStop(0, '#406a82');
+  water.addColorStop(1, '#22455c');
+  ctx.fillStyle = water;
+  ctx.fillRect(x, y + 135, w, h - 135);
+  // Water ripples
+  ctx.strokeStyle = 'rgba(220,238,248,0.28)';
+  ctx.lineWidth = 1.5;
+  for (let i = 0; i < 45; i++) {
+    const ry = y + 145 + Math.random() * 175;
+    const rx = x + Math.random() * 170;
+    ctx.beginPath();
+    ctx.moveTo(rx, ry);
+    ctx.lineTo(rx + 18 + Math.random() * 28, ry);
+    ctx.stroke();
+  }
+  // Wooden pier & Riva boat
+  ctx.fillStyle = '#b98356';
+  ctx.beginPath();
+  ctx.moveTo(x, y + h);
+  ctx.lineTo(x + 68, y + 215);
+  ctx.lineTo(x + 92, y + 215);
+  ctx.lineTo(x + 46, y + h);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#9c3e26';
+  ctx.beginPath();
+  ctx.ellipse(x + 128, y + 250, 38, 13, -0.35, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#efe9dc';
+  ctx.beginPath();
+  ctx.ellipse(x + 130, y + 247, 26, 7, -0.35, 0, Math.PI * 2);
+  ctx.fill();
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+function makeFabricTexture(base, stripe) {
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 256;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = base;
+  ctx.fillRect(0, 0, 256, 256);
+  ctx.fillStyle = stripe;
+  for (let i = 0; i < 256; i += 6) {
+    ctx.fillRect(i, 0, 2, 256);
+  }
+  ctx.globalAlpha = 0.25;
+  for (let j = 0; j < 256; j += 6) {
+    ctx.fillRect(0, j, 256, 2);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(6, 6);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// ============================================================
+// THREE.JS SCENE SETUP
+// ============================================================
+const wrap = document.getElementById('canvas-wrap');
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.28;
+wrap.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1a1d22);
+
+const camera = new THREE.PerspectiveCamera(44, window.innerWidth / window.innerHeight, 1, 900);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.maxPolarAngle = Math.PI * 0.495;
+controls.minDistance = 18;
+controls.maxDistance = 320;
+
+// Lighting (warm ceiling fan dome + soft daylight bounce + fill)
+const hemiLight = new THREE.HemisphereLight(0xfff6e8, 0x7c6852, 1.25);
+scene.add(hemiLight);
+
+const ceilingLight = new THREE.PointLight(0xffefd8, 1.9, 380, 0.35);
+ceilingLight.position.set(72, 86, 66);
+ceilingLight.castShadow = true;
+ceilingLight.shadow.mapSize.set(2048, 2048);
+ceilingLight.shadow.bias = -0.0005;
+scene.add(ceilingLight);
+
+const dirFill = new THREE.DirectionalLight(0xe4eeff, 0.85);
+dirFill.position.set(25, 78, 135);
+dirFill.castShadow = true;
+dirFill.shadow.mapSize.set(1024, 1024);
+dirFill.shadow.camera.left = -90;
+dirFill.shadow.camera.right = 90;
+dirFill.shadow.camera.top = 90;
+dirFill.shadow.camera.bottom = -90;
+scene.add(dirFill);
+
+const rimLight = new THREE.DirectionalLight(0xffe6c7, 0.45);
+rimLight.position.set(125, 60, 40);
+scene.add(rimLight);
+
+// Materials
+const floorTex = makeWoodTexture('#b87439', '#6b3a12', 10, false);
+floorTex.repeat.set(4, 5);
+const bambooTex = makeWoodTexture('#e3ba82', '#a87c42', 14, true);
+bambooTex.repeat.set(2, 1);
+
+const matFloor = new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.45, metalness: 0.05 });
+const matWall = new THREE.MeshStandardMaterial({ color: 0xb1b590, roughness: 0.86, side: THREE.FrontSide });
+const matWallBack = new THREE.MeshStandardMaterial({ color: 0x262930, roughness: 0.9, side: THREE.BackSide });
+const matOakTrim = new THREE.MeshStandardMaterial({ color: 0x945826, roughness: 0.44, metalness: 0.05 });
+const matWalnut = new THREE.MeshStandardMaterial({ color: 0x5c371e, roughness: 0.42, metalness: 0.06 });
+const matBamboo = new THREE.MeshStandardMaterial({ map: bambooTex, roughness: 0.48, metalness: 0.02 });
+const matWhiteMetal = new THREE.MeshStandardMaterial({ color: 0xf0f1ec, roughness: 0.35, metalness: 0.2 });
+const matBlackMetal = new THREE.MeshStandardMaterial({ color: 0x303540, roughness: 0.42, metalness: 0.45 });
+const matArmMetal = new THREE.MeshStandardMaterial({ color: 0x3f4654, roughness: 0.32, metalness: 0.65 });
+const matArmAccent = new THREE.MeshStandardMaterial({ color: 0xd9822b, roughness: 0.35, metalness: 0.5 });
+const matCouch = new THREE.MeshStandardMaterial({ map: makeFabricTexture('#b2b5b9', '#9ea2a7'), roughness: 0.92 });
+const matGlass = new THREE.MeshPhysicalMaterial({ color: 0x2b3e4f, roughness: 0.14, metalness: 0.1, transmission: 0.3, transparent: true, opacity: 0.72 });
+
+// Subtle glowing wallpaper texture for the LG 39" 5K2K screen
+const screenCanvas = document.createElement('canvas');
+screenCanvas.width = 512; screenCanvas.height = 256;
+const sctx = screenCanvas.getContext('2d');
+const sg = sctx.createLinearGradient(0, 0, 512, 256);
+sg.addColorStop(0, '#101c2e');
+sg.addColorStop(0.5, '#1b314d');
+sg.addColorStop(1, '#261e38');
+sctx.fillStyle = sg;
+sctx.fillRect(0, 0, 512, 256);
+sctx.fillStyle = 'rgba(255,255,255,0.06)';
+sctx.fillRect(28, 24, 210, 175);
+sctx.fillRect(254, 24, 230, 175);
+sctx.fillStyle = 'rgba(217,130,43,0.45)';
+sctx.fillRect(190, 224, 132, 10);
+const screenTex = new THREE.CanvasTexture(screenCanvas);
+screenTex.colorSpace = THREE.SRGBColorSpace;
+const matScreen = new THREE.MeshStandardMaterial({ map: screenTex, roughness: 0.24, metalness: 0.15, emissive: 0x16263d, emissiveIntensity: 0.55 });
+
+// ============================================================
+// BUILD ROOM ENVIRONMENT (matches IMG_4731, IMG_4732, IMG_4733)
+// ============================================================
+const roomGroup = new THREE.Group();
+scene.add(roomGroup);
+
+// Floor
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(ROOM.widthX, ROOM.depthZ), matFloor);
+floor.rotation.x = -Math.PI / 2;
+floor.position.set(ROOM.widthX / 2, 0, ROOM.depthZ / 2);
+floor.receiveShadow = true;
+roomGroup.add(floor);
+
+// Walls (only front faces visible from inside, so orbiting outside never blocks the view!)
+function addWall(w, h, x, y, z, rotY) {
+  const g = new THREE.PlaneGeometry(w, h);
+  const m = new THREE.Mesh(g, matWall);
+  m.position.set(x, y, z);
+  m.rotation.y = rotY;
+  m.receiveShadow = true;
+  roomGroup.add(m);
+  return m;
+}
+// East wall (Z = 0, faces +Z)
+addWall(ROOM.widthX, ROOM.heightY, ROOM.widthX / 2, ROOM.heightY / 2, 0, 0);
+// South wall (X = widthX, faces -X)
+addWall(ROOM.depthZ, ROOM.heightY, ROOM.widthX, ROOM.heightY / 2, ROOM.depthZ / 2, -Math.PI / 2);
+// North wall (X = 0, faces +X)
+addWall(ROOM.depthZ, ROOM.heightY, 0, ROOM.heightY / 2, ROOM.depthZ / 2, Math.PI / 2);
+// West wall (Z = depthZ, faces -Z)
+addWall(ROOM.widthX, ROOM.heightY, ROOM.widthX / 2, ROOM.heightY / 2, ROOM.depthZ, Math.PI);
+
+// Oak baseboards
+function addBaseboard(len, x, z, rotY) {
+  const b = new THREE.Mesh(new THREE.BoxGeometry(len, 4.2, 0.7), matOakTrim);
+  b.position.set(x, 2.1, z);
+  b.rotation.y = rotY;
+  b.receiveShadow = true;
+  roomGroup.add(b);
+}
+addBaseboard(ROOM.widthX, ROOM.widthX / 2, 0.35, 0);
+addBaseboard(ROOM.depthZ, ROOM.widthX - 0.35, ROOM.depthZ / 2, -Math.PI / 2);
+addBaseboard(ROOM.depthZ, 0.35, ROOM.depthZ / 2, Math.PI / 2);
+addBaseboard(ROOM.widthX, ROOM.widthX / 2, ROOM.depthZ - 0.35, Math.PI);
+
+// Horizontal wood-trimmed sliding window helper
+function addSlidingWindow(w, h, sillY, x, z, rotY) {
+  const wg = new THREE.Group();
+  wg.position.set(x, sillY + h / 2, z);
+  wg.rotation.y = rotY;
+
+  const frameT = 3.2;
+  // Outer trim
+  const topTrim = new THREE.Mesh(new THREE.BoxGeometry(w + frameT * 2, frameT, 1.4), matOakTrim);
+  topTrim.position.set(0, h / 2 + frameT / 2, 0.7);
+  wg.add(topTrim);
+  // Protruding sill
+  const sill = new THREE.Mesh(new THREE.BoxGeometry(w + frameT * 2 + 2, 2.2, 2.4), matOakTrim);
+  sill.position.set(0, -h / 2 - 1.1, 1.2);
+  sill.castShadow = true;
+  wg.add(sill);
+  // Side trims
+  for (const s of [-1, 1]) {
+    const st = new THREE.Mesh(new THREE.BoxGeometry(frameT, h, 1.4), matOakTrim);
+    st.position.set(s * (w / 2 + frameT / 2), 0, 0.7);
+    wg.add(st);
+  }
+  // Center mullion
+  const mullion = new THREE.Mesh(new THREE.BoxGeometry(2.0, h, 1.2), matOakTrim);
+  mullion.position.set(0, 0, 0.6);
+  wg.add(mullion);
+  // Dark reflective glass panes
+  const glass = new THREE.Mesh(new THREE.PlaneGeometry(w, h), matGlass);
+  glass.position.set(0, 0, 0.35);
+  wg.add(glass);
+
+  roomGroup.add(wg);
+}
+// East wall window (above desk, ~66" wide, 27" tall, sill at 46")
+addSlidingWindow(66, 27, 46, DESK_LEFT_X + 20, 0, 0);
+// South wall window (near SE corner, ~50" wide, 27" tall, sill at 46")
+addSlidingWindow(50, 27, 46, ROOM.widthX, 34, -Math.PI / 2);
+
+// Ceiling fan (subtle overhead fixture)
+const fanGroup = new THREE.Group();
+fanGroup.position.set(72, ROOM.heightY - 8, 66);
+const fanHub = new THREE.Mesh(new THREE.CylinderGeometry(5, 6, 3.5, 24), matWhiteMetal);
+fanGroup.add(fanHub);
+const fanDome = new THREE.Mesh(new THREE.SphereGeometry(5.5, 20, 12, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2),
+  new THREE.MeshStandardMaterial({ color: 0xfff7e6, emissive: 0xffe4b5, emissiveIntensity: 0.9, roughness: 0.2 }));
+fanDome.position.y = -1.5;
+fanGroup.add(fanDome);
+for (let i = 0; i < 5; i++) {
+  const blade = new THREE.Mesh(new THREE.BoxGeometry(22, 0.4, 5), matWhiteMetal);
+  const a = (i / 5) * Math.PI * 2;
+  blade.position.set(Math.cos(a) * 14, 1.2, Math.sin(a) * 14);
+  blade.rotation.y = -a;
+  fanGroup.add(blade);
+}
+roomGroup.add(fanGroup);
+
+// --- NORTH WALL: Heather-grey Couch (76" wide x 38" deep) ---
+const couchGroup = new THREE.Group();
+const couchLen = ROOM.couchWidth; // 76"
+const couchZCenter = 40;          // leaves entry door space near West/North corner
+// Base & seat cushion
+const couchBase = new THREE.Mesh(new THREE.BoxGeometry(ROOM.couchDepth, 16, couchLen), matCouch);
+couchBase.position.set(ROOM.couchDepth / 2, 8, couchZCenter);
+couchBase.castShadow = true; couchBase.receiveShadow = true;
+couchGroup.add(couchBase);
+// Backrest against north wall
+const couchBack = new THREE.Mesh(new THREE.BoxGeometry(9, 18, couchLen), matCouch);
+couchBack.position.set(4.5, 23, couchZCenter);
+couchBack.castShadow = true;
+couchGroup.add(couchBack);
+// Armrests
+for (const s of [-1, 1]) {
+  const arm = new THREE.Mesh(new THREE.BoxGeometry(ROOM.couchDepth, 10, 7), matCouch);
+  arm.position.set(ROOM.couchDepth / 2, 19, couchZCenter + s * (couchLen / 2 - 3.5));
+  arm.castShadow = true;
+  couchGroup.add(arm);
+}
+// Accent throw pillows (orange/brown from IMG_4732)
+const matPillowOrange = new THREE.MeshStandardMaterial({ color: 0xd16838, roughness: 0.9 });
+const matPillowDark = new THREE.MeshStandardMaterial({ color: 0x3a322e, roughness: 0.9 });
+const p1 = new THREE.Mesh(new THREE.BoxGeometry(5, 13, 13), matPillowOrange);
+p1.position.set(13, 21, couchZCenter - 22); p1.rotation.z = -0.25; p1.rotation.y = 0.2;
+couchGroup.add(p1);
+const p2 = new THREE.Mesh(new THREE.BoxGeometry(5, 13, 13), matPillowDark);
+p2.position.set(16, 20, couchZCenter - 15); p2.rotation.z = -0.35; p2.rotation.y = -0.15;
+couchGroup.add(p2);
+roomGroup.add(couchGroup);
+
+// --- SE CORNER: Black PC Tower (exact 9" wide x 17.5" deep) ---
+const pcGroup = new THREE.Group();
+const pcCase = new THREE.Mesh(new THREE.BoxGeometry(ROOM.pcW, 19.5, ROOM.pcD), matBlackMetal);
+pcCase.position.set(0, 9.75, 0);
+pcCase.castShadow = true; pcCase.receiveShadow = true;
+pcGroup.add(pcCase);
+const pcLed = new THREE.Mesh(new THREE.BoxGeometry(5, 6, 0.3),
+  new THREE.MeshBasicMaterial({ color: 0x3b6cff }));
+pcLed.position.set(0, 11, ROOM.pcD / 2 + 0.1);
+pcGroup.add(pcLed);
+pcGroup.position.set(ROOM.widthX - 5.5, 0, 13);
+roomGroup.add(pcGroup);
+
+// --- SOUTH WALL: Tower Fan, Air Vent, Walnut 4-Drawer Dresser (34.5"W x 18"D x 48"H) & Lake Como Art ---
+const vent = new THREE.Mesh(new THREE.BoxGeometry(0.5, 10, 12), matWhiteMetal);
+vent.position.set(ROOM.widthX - 0.3, 12, 62);
+roomGroup.add(vent);
+
+const towerFanGroup = new THREE.Group();
+const towerFan = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 3.8, 34, 16), matWhiteMetal);
+towerFan.position.set(0, 17, 0);
+towerFan.castShadow = true;
+towerFanGroup.add(towerFan);
+const fanGrill = new THREE.Mesh(new THREE.BoxGeometry(2.5, 24, 3.2), matBlackMetal);
+fanGrill.position.set(-2.2, 18, 0);
+towerFanGroup.add(fanGrill);
+towerFanGroup.position.set(ROOM.widthX - 6, 0, 74);
+roomGroup.add(towerFanGroup);
+
+// Walnut Dresser + Framed Lake Como Boat Art (34.5"W x 18"D x 48"H, 3.35" gap from West closet wall)
+const dresserGroup = new THREE.Group();
+const dresser = new THREE.Mesh(new THREE.BoxGeometry(ROOM.dresserD, ROOM.dresserH, ROOM.dresserW), matWalnut);
+dresser.position.set(ROOM.widthX - ROOM.dresserD / 2 - 0.5, ROOM.dresserH / 2, 0);
+dresser.castShadow = true; dresser.receiveShadow = true;
+dresserGroup.add(dresser);
+for (let d = 0; d < 4; d++) {
+  const dy = 8 + d * 10.5;
+  for (const kz of [-9, 9]) {
+    const knob = new THREE.Mesh(new THREE.SphereGeometry(0.7, 10, 10), matOakTrim);
+    knob.position.set(ROOM.widthX - ROOM.dresserD - 0.8, dy, kz);
+    dresserGroup.add(knob);
+  }
+}
+const artFrame = new THREE.Mesh(new THREE.BoxGeometry(1.4, 34, 24), matBlackMetal);
+artFrame.position.set(ROOM.widthX - 0.8, ROOM.dresserH + 22, 0);
+artFrame.castShadow = true;
+dresserGroup.add(artFrame);
+const artCanvas = new THREE.Mesh(new THREE.PlaneGeometry(22, 32), new THREE.MeshStandardMaterial({ map: makeArtTexture(), roughness: 0.6 }));
+artCanvas.position.set(ROOM.widthX - 1.6, ROOM.dresserH + 22, 0);
+artCanvas.rotation.y = -Math.PI / 2;
+dresserGroup.add(artCanvas);
+dresserGroup.position.z = state.dresserEdgeZ + ROOM.dresserW / 2;
+roomGroup.add(dresserGroup);
+
+// --- WEST WALL: Sliding Wood Closet Doors ---
+const closetTrim = new THREE.Mesh(new THREE.BoxGeometry(64, 82, 1.5), matOakTrim);
+closetTrim.position.set(82, 41, ROOM.depthZ - 0.8);
+roomGroup.add(closetTrim);
+const closetDoor1 = new THREE.Mesh(new THREE.BoxGeometry(30, 78, 1.2), matWalnut);
+closetDoor1.position.set(67, 39, ROOM.depthZ - 1.6);
+roomGroup.add(closetDoor1);
+const closetDoor2 = new THREE.Mesh(new THREE.BoxGeometry(30, 78, 1.2), matWalnut);
+closetDoor2.position.set(96, 39, ROOM.depthZ - 2.4);
+roomGroup.add(closetDoor2);
+
+// ============================================================
+// STATION GROUP (Desk + Rug + Sim Rig + Chair + Monitor + Arm)
+// Allows switching seamlessly between East Window and South Window!
+// ============================================================
+const stationGroup = new THREE.Group();
+scene.add(stationGroup);
+
+// Dark woven floor mat under desk
+const deskRug = new THREE.Mesh(
+  new THREE.BoxGeometry(50, 0.25, 36),
+  new THREE.MeshStandardMaterial({ color: 0x3b3833, roughness: 0.95 })
+);
+deskRug.position.set(DESK_LEFT_X + ROOM.deskWidth / 2, 0.13, 24);
+deskRug.receiveShadow = true;
+stationGroup.add(deskRug);
+
+// ============================================================
+// STANDING DESK (Bamboo top + white motorized legs)
+// ============================================================
+const deskGroup = new THREE.Group();
+stationGroup.add(deskGroup);
+
+const deskTopGroup = new THREE.Group();
+deskGroup.add(deskTopGroup);
+
+const deskTop = new THREE.Mesh(new THREE.BoxGeometry(ROOM.deskWidth, ROOM.deskThick, ROOM.deskDepth), matBamboo);
+deskTop.castShadow = true; deskTop.receiveShadow = true;
+deskTopGroup.add(deskTop);
+
+// Black SteelSeries desk mat + keyboard + mice
+const deskMat = new THREE.Mesh(
+  new THREE.BoxGeometry(34, 0.15, 14),
+  new THREE.MeshStandardMaterial({ color: 0x16181c, roughness: 0.9 })
+);
+deskMat.position.set(0, ROOM.deskThick / 2 + 0.08, 4.5);
+deskTopGroup.add(deskMat);
+
+const keyboard = new THREE.Mesh(new THREE.BoxGeometry(14, 0.7, 5), matBlackMetal);
+keyboard.position.set(0, ROOM.deskThick / 2 + 0.5, 4);
+deskTopGroup.add(keyboard);
+
+const mouseWhite = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.1, 4.4), matWhiteMetal);
+mouseWhite.position.set(10.5, ROOM.deskThick / 2 + 0.65, 5);
+deskTopGroup.add(mouseWhite);
+
+// Grommet holes (9" from each side, 3" from back)
+for (const side of [-1, 1]) {
+  const grom = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.1, 0.2, 20), matBlackMetal);
+  grom.position.set(side * (ROOM.deskWidth / 2 - 9), ROOM.deskThick / 2 + 0.06, -ROOM.deskDepth / 2 + 3);
+  deskTopGroup.add(grom);
+}
+
+// White standing desk legs (feet + lower + telescoping upper)
+const deskLegsLower = new THREE.Group();
+const deskLegsUpper = new THREE.Group();
+deskGroup.add(deskLegsLower);
+deskGroup.add(deskLegsUpper);
+
+for (const side of [-1, 1]) {
+  const lx = side * (ROOM.deskWidth / 2 - 4.5);
+  const foot = new THREE.Mesh(new THREE.BoxGeometry(2.8, 1.4, 24), matWhiteMetal);
+  foot.position.set(lx, 0.7, 0);
+  foot.castShadow = true; foot.receiveShadow = true;
+  deskLegsLower.add(foot);
+
+  const lowerCol = new THREE.Mesh(new THREE.BoxGeometry(2.6, 21, 3.2), matWhiteMetal);
+  lowerCol.position.set(lx, 11.5, 0);
+  lowerCol.castShadow = true;
+  deskLegsLower.add(lowerCol);
+
+  const upperCol = new THREE.Mesh(new THREE.BoxGeometry(2.2, 22, 2.7), matWhiteMetal);
+  upperCol.position.set(lx, -11, 0);
+  upperCol.castShadow = true;
+  deskLegsUpper.add(upperCol);
+}
+
+// ============================================================
+// PLAYSEAT CHALLENGE X SIM RIG (exact 63" long x 20.5" seat width)
+// ============================================================
+const rigGroup = new THREE.Group();
+stationGroup.add(rigGroup);
+
+const matRigTube = new THREE.MeshStandardMaterial({ color: 0x4e5562, roughness: 0.4, metalness: 0.6 });
+const matRigSeat = new THREE.MeshStandardMaterial({ color: 0x2c313b, roughness: 0.82 });
+const matLogiBlue = new THREE.MeshStandardMaterial({ color: 0x2277dd, roughness: 0.4 });
+
+// Build Playseat oriented with front (pedals) toward -Z, seat back at +Z (total length = 63", Z from -31.5 to +31.5)
+(function buildPlayseat() {
+  const halfW = ROOM.rigWidth / 2; // 10.25"
+  for (const s of [-1, 1]) {
+    const rail = new THREE.Mesh(new THREE.CylinderGeometry(0.65, 0.65, 60, 12), matRigTube);
+    rail.rotation.x = Math.PI / 2;
+    rail.position.set(s * (halfW - 1.0), 2.5, 0);
+    rail.castShadow = true;
+    rigGroup.add(rail);
+  }
+  // Pedal tray & 3 pedals near front (-Z)
+  const pedalBase = new THREE.Mesh(new THREE.BoxGeometry(14.5, 2.2, 14), matBlackMetal);
+  pedalBase.position.set(0, 3.2, -23);
+  pedalBase.rotation.x = 0.22;
+  pedalBase.castShadow = true;
+  rigGroup.add(pedalBase);
+  for (const px of [-3.6, 0, 3.6]) {
+    const ped = new THREE.Mesh(new THREE.BoxGeometry(2.1, 4.5, 0.5), matWhiteMetal);
+    ped.position.set(px, 6.2, -25);
+    ped.rotation.x = -0.3;
+    rigGroup.add(ped);
+  }
+  // Seat cushion sling
+  const seatPan = new THREE.Mesh(new THREE.BoxGeometry(ROOM.rigWidth - 1.5, 2.2, 21), matRigSeat);
+  seatPan.position.set(0, 12.5, 11);
+  seatPan.rotation.x = -0.18;
+  seatPan.castShadow = true;
+  rigGroup.add(seatPan);
+  // Reclined backrest (back edge reaches +31.5")
+  const seatBack = new THREE.Mesh(new THREE.BoxGeometry(ROOM.rigWidth - 2.0, 29, 2.5), matRigSeat);
+  seatBack.position.set(0, 26.5, 25.5);
+  seatBack.rotation.x = 0.28;
+  seatBack.castShadow = true;
+  rigGroup.add(seatBack);
+  // Side frame uprights & wheel deck arch
+  for (const s of [-1, 1]) {
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 24, 10), matRigTube);
+    leg.position.set(s * (halfW - 1.0), 13, 4);
+    leg.rotation.x = -0.25;
+    rigGroup.add(leg);
+  }
+  const wheelDeck = new THREE.Mesh(new THREE.BoxGeometry(ROOM.rigWidth, 1.2, 6), matRigTube);
+  wheelDeck.position.set(0, 24.5, -5.5);
+  wheelDeck.castShadow = true;
+  rigGroup.add(wheelDeck);
+  // Logitech wheel base + rim
+  const wheelBase = new THREE.Mesh(new THREE.BoxGeometry(9.5, 6.5, 9), matBlackMetal);
+  wheelBase.position.set(0, 27.5, -6.5);
+  wheelBase.castShadow = true;
+  rigGroup.add(wheelBase);
+  const wheelRim = new THREE.Mesh(new THREE.TorusGeometry(5.4, 0.75, 12, 28), matBlackMetal);
+  wheelRim.position.set(0, 28.2, -1.2);
+  wheelRim.rotation.x = -0.22;
+  wheelRim.castShadow = true;
+  rigGroup.add(wheelRim);
+  const topMarker = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.3, 1.1), matLogiBlue);
+  topMarker.position.set(0, 33.4, -2.3);
+  rigGroup.add(topMarker);
+})();
+
+// Driver eye marker (small glowing sphere at driver eye height)
+const eyeMarker = new THREE.Mesh(
+  new THREE.SphereGeometry(1.1, 16, 16),
+  new THREE.MeshBasicMaterial({ color: 0x38b87c, transparent: true, opacity: 0.75 })
+);
+rigGroup.add(eyeMarker);
+
+// ============================================================
+// OFFICE CHAIR (Embody silhouette)
+// ============================================================
+const chairGroup = new THREE.Group();
+stationGroup.add(chairGroup);
+(function buildChair() {
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(12, 12, 2, 5), matBlackMetal);
+  base.position.y = 2.5;
+  chairGroup.add(base);
+  const stem = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.4, 15, 12), matBlackMetal);
+  stem.position.y = 10;
+  chairGroup.add(stem);
+  const seat = new THREE.Mesh(new THREE.BoxGeometry(20, 2.5, 19), matRigSeat);
+  seat.position.y = 18.5; seat.castShadow = true;
+  chairGroup.add(seat);
+  const back = new THREE.Mesh(new THREE.BoxGeometry(17, 26, 2.5), matRigSeat);
+  back.position.set(0, 32, 9.5); back.rotation.x = 0.14; back.castShadow = true;
+  chairGroup.add(back);
+  for (const s of [-1, 1]) {
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(3, 1.2, 11), matBlackMetal);
+    arm.position.set(s * 11, 25.5, 1);
+    chairGroup.add(arm);
+  }
+})();
+
+// ============================================================
+// CURVED MONITOR MESH GENERATOR (LG 39" 5K2K: 36.3" x 16.0")
+// ============================================================
+function createCurvedMonitorGeometry(widthIn, heightIn, radiusIn, thicknessIn = 1.2) {
+  const segs = 36;
+  const arcAngle = widthIn / radiusIn; // radians
+  const geom = new THREE.BufferGeometry();
+  const positions = [];
+  const uvs = [];
+  const indices = [];
+
+  // Front face (concave, facing +Z)
+  for (let i = 0; i <= segs; i++) {
+    const u = i / segs;
+    const theta = (u - 0.5) * arcAngle;
+    const x = radiusIn * Math.sin(theta);
+    const z = radiusIn * (1 - Math.cos(theta)); // center at z=0, edges curve toward +Z
+    positions.push(x, -heightIn / 2, z);
+    uvs.push(u, 0);
+    positions.push(x, heightIn / 2, z);
+    uvs.push(u, 1);
+  }
+  for (let i = 0; i < segs; i++) {
+    const a = i * 2, b = a + 1, c = a + 2, d = a + 3;
+    indices.push(a, c, b, b, c, d);
+  }
+  // Back shell offset by -thicknessIn
+  const backOffset = (segs + 1) * 2;
+  for (let i = 0; i <= segs; i++) {
+    const u = i / segs;
+    const theta = (u - 0.5) * arcAngle;
+    const x = (radiusIn + thicknessIn) * Math.sin(theta);
+    const z = radiusIn * (1 - Math.cos(theta)) - thicknessIn * Math.cos(theta);
+    positions.push(x, -heightIn / 2, z);
+    uvs.push(u, 0);
+    positions.push(x, heightIn / 2, z);
+    uvs.push(u, 1);
+  }
+  for (let i = 0; i < segs; i++) {
+    const a = backOffset + i * 2, b = a + 1, c = a + 2, d = a + 3;
+    indices.push(a, b, c, b, d, c);
+  }
+  // Top & Bottom caps
+  for (let i = 0; i < segs; i++) {
+    const fb = i * 2, ft = fb + 1, fb2 = fb + 2, ft2 = fb + 3;
+    const bb = backOffset + i * 2, bt = bb + 1, bb2 = bb + 2, bt2 = bb + 3;
+    indices.push(ft, ft2, bt, bt, ft2, bt2); // top
+    indices.push(fb, bb, fb2, bb, bb2, fb2); // bottom
+  }
+  geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geom.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geom.setIndex(indices);
+  geom.computeVertexNormals();
+  return geom;
+}
+
+const monitorGroup = new THREE.Group();
+stationGroup.add(monitorGroup);
+let monitorMesh = null;
+let ghostTargetMesh = null;
+let ghostOtherMesh = null;
+
+function rebuildMonitorMeshes() {
+  if (monitorMesh) monitorGroup.remove(monitorMesh);
+  if (ghostTargetMesh) stationGroup.remove(ghostTargetMesh);
+  if (ghostOtherMesh) stationGroup.remove(ghostOtherMesh);
+
+  const radiusIn = state.curveR_mm / 25.4;
+  const geom = createCurvedMonitorGeometry(36.3, 16.0, radiusIn, 1.3);
+
+  monitorMesh = new THREE.Mesh(geom, matScreen);
+  monitorMesh.castShadow = true;
+  monitorGroup.add(monitorMesh);
+
+  // Subtle bezel rim
+  const edges = new THREE.EdgesGeometry(geom, 35);
+  const rim = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x3b4252 }));
+  monitorMesh.add(rim);
+
+  // Red ghost outline when target is unreachable
+  ghostTargetMesh = new THREE.LineSegments(
+    new THREE.EdgesGeometry(geom, 30),
+    new THREE.LineBasicMaterial({ color: 0xe55353, transparent: true, opacity: 0.85 })
+  );
+  ghostTargetMesh.visible = false;
+  stationGroup.add(ghostTargetMesh);
+
+  // Faint ghost of the inactive mode (Desk or Sim)
+  ghostOtherMesh = new THREE.LineSegments(
+    new THREE.EdgesGeometry(geom, 30),
+    new THREE.LineBasicMaterial({ color: 0xd9822b, transparent: true, opacity: 0.25 })
+  );
+  stationGroup.add(ghostOtherMesh);
+}
+rebuildMonitorMeshes();
+
+// ============================================================
+// ARTICULATED MONITOR ARM MESHES
+// ============================================================
+const armGroup = new THREE.Group();
+stationGroup.add(armGroup);
+
+function makeJointMesh(radius = 1.1, height = 2.0, mat = matArmMetal) {
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, height, 18), mat);
+  m.castShadow = true;
+  return m;
+}
+function makeLinkMesh(mat = matArmMetal) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(1, 1.6, 1.4), mat);
+  m.castShadow = true;
+  return m;
+}
+
+const armParts = {
+  clampPlate: new THREE.Mesh(new THREE.BoxGeometry(5.5, 0.35, 5.5), matArmAccent),
+  clampBody: new THREE.Mesh(new THREE.BoxGeometry(4.2, 3.2, 4.2), matArmMetal),
+  pole: new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.75, 1, 20), matArmMetal),
+  collar: makeJointMesh(1.25, 1.8, matArmAccent),
+  links: [makeLinkMesh(), makeLinkMesh()],
+  elbows: [makeJointMesh(1.05, 2.2), makeJointMesh(1.05, 2.2)],
+  liftArm: new THREE.Mesh(new THREE.BoxGeometry(1, 1.9, 1.5), matArmMetal),
+  wrist: makeJointMesh(0.95, 1.8),
+  head: makeLinkMesh(matArmMetal),
+  vesaPlate: new THREE.Mesh(new THREE.BoxGeometry(4.4, 4.4, 0.4), matArmMetal)
+};
+Object.values(armParts).flat().forEach(m => armGroup.add(m));
+
+// ============================================================
+// FLOOR GRID & REACH RING OVERLAYS
+// ============================================================
+const overlaysGroup = new THREE.Group();
+scene.add(overlaysGroup);
+
+// 12" floor grid
+const gridHelper = new THREE.GridHelper(168, 14, 0x5c6678, 0x2c323d);
+gridHelper.position.set(72, 0.2, 72);
+gridHelper.material.transparent = true;
+gridHelper.material.opacity = 0.32;
+overlaysGroup.add(gridHelper);
+
+// Dashed reach ring around pole (lives in stationGroup so it rotates with layout)
+function createDashedCircle(radius, color = 0xd9822b) {
+  const pts = [];
+  const segs = 96;
+  for (let i = 0; i <= segs; i++) {
+    const a = (i / segs) * Math.PI * 2;
+    pts.push(new THREE.Vector3(Math.cos(a) * radius, 0, Math.sin(a) * radius));
+  }
+  const g = new THREE.BufferGeometry().setFromPoints(pts);
+  const l = new THREE.Line(g, new THREE.LineDashedMaterial({ color, dashSize: 2.2, gapSize: 1.4, transparent: true, opacity: 0.75 }));
+  l.computeLineDistances();
+  return l;
+}
+let reachRing = createDashedCircle(25);
+stationGroup.add(reachRing);
+
+// ============================================================
+// KINEMATICS SOLVER (2-link & 3-link + Wall Collision Check)
+// ============================================================
+function solveArmIK(armSpec, clampWorldX, poleZ, deskH, collarH, pos) {
+  const collarY = deskH + Math.min(collarH, armSpec.poleHeight - 1);
+  const screenWorldX = DESK_LEFT_X + pos.mx;
+  const screenWorldZ = state.wallGap + pos.mz;
+  const screenWorldY = pos.my;
+
+  // Monitor normal: swivel=0 faces +Z (west); negative faces -X (north); positive faces +X (south)
+  const swRad = THREE.MathUtils.degToRad(pos.swivel);
+  const frontDir = new THREE.Vector3(Math.sin(swRad), 0, Math.cos(swRad));
+  const vesaDepth = 1.6; // VESA mount behind center of curved panel
+  const vesaPos = new THREE.Vector3(screenWorldX, screenWorldY, screenWorldZ)
+    .addScaledVector(frontDir, -vesaDepth);
+  const wristTarget = vesaPos.clone().addScaledVector(frontDir, -armSpec.headLen);
+
+  // Vertical lift check
+  const maxDY = armSpec.liftLen * Math.sin(THREE.MathUtils.degToRad(armSpec.maxLiftDeg));
+  const rawDY = wristTarget.y - collarY;
+  const vertOk = Math.abs(rawDY) <= maxDY + 0.05;
+  const clampedDY = THREE.MathUtils.clamp(rawDY, -maxDY, maxDY);
+  const liftHoriz = Math.sqrt(Math.max(1, armSpec.liftLen * armSpec.liftLen - clampedDY * clampedDY));
+
+  const P0 = new THREE.Vector2(clampWorldX, poleZ);
+  const Pt = new THREE.Vector2(wristTarget.x, wristTarget.z);
+  const dist = P0.distanceTo(Pt);
+
+  const segs = [...armSpec.segments, liftHoriz];
+  const maxReach = segs.reduce((a, b) => a + b, 0);
+  const reachOk = dist <= maxReach - 0.05;
+
+  // Solve planar joints in XZ
+  let jointsXZ = [P0.clone()];
+  const wallLimitZ = 1.0; // east wall surface + 1" margin
+
+  function solve2Link(A, B, L1, L2) {
+    const d = A.distanceTo(B);
+    const dir = B.clone().sub(A);
+    if (d < 1e-4) return [A.clone().add(new THREE.Vector2(0, L1))];
+    dir.normalize();
+    const clampedD = Math.min(d, L1 + L2 - 1e-4);
+    const cosA = THREE.MathUtils.clamp((L1 * L1 + clampedD * clampedD - L2 * L2) / (2 * L1 * clampedD), -1, 1);
+    const sinA = Math.sqrt(Math.max(0, 1 - cosA * cosA));
+    const perp = new THREE.Vector2(-dir.y, dir.x);
+    const e1 = A.clone().addScaledVector(dir, L1 * cosA).addScaledVector(perp, L1 * sinA);
+    const e2 = A.clone().addScaledVector(dir, L1 * cosA).addScaledVector(perp, -L1 * sinA);
+    // Prefer elbow further from east wall (larger Z)
+    return e1.y >= e2.y ? [e1, B.clone()] : [e2, B.clone()];
+  }
+
+  let actualWristXZ = Pt.clone();
+  if (!reachOk && dist > 1e-4) {
+    actualWristXZ = P0.clone().addScaledVector(Pt.clone().sub(P0).normalize(), maxReach);
+  }
+
+  if (segs.length === 2) {
+    const [e, w] = solve2Link(P0, actualWristXZ, segs[0], segs[1]);
+    jointsXZ.push(e, w);
+  } else {
+    // 3-link: search best angle for segment 0 that keeps joints away from east wall
+    const [L1, L2, L3] = segs;
+    let bestScore = -1e9;
+    let bestChain = null;
+    for (let deg = -180; deg < 180; deg += 5) {
+      const rad = deg * Math.PI / 180;
+      const J1 = new THREE.Vector2(P0.x + Math.cos(rad) * L1, P0.y + Math.sin(rad) * L1);
+      const dRem = J1.distanceTo(actualWristXZ);
+      if (dRem > L2 + L3 + 0.05 || dRem < Math.abs(L2 - L3) - 0.05) continue;
+      const [J2, W] = solve2Link(J1, actualWristXZ, L2, L3);
+      const minZ = Math.min(J1.y, J2.y, W.y);
+      // Score: prioritize wall clearance above wallLimitZ, then natural forward bend
+      const score = (minZ >= wallLimitZ ? 100 : minZ * 20) + minZ * 0.4 - Math.abs(J1.x - (P0.x + actualWristXZ.x) * 0.5) * 0.05;
+      if (score > bestScore) {
+        bestScore = score;
+        bestChain = [J1, J2, W];
+      }
+    }
+    if (bestChain) {
+      jointsXZ.push(...bestChain);
+    } else {
+      const dir = actualWristXZ.clone().sub(P0).normalize();
+      jointsXZ.push(
+        P0.clone().addScaledVector(dir, L1),
+        P0.clone().addScaledVector(dir, L1 + L2),
+        actualWristXZ.clone()
+      );
+    }
+  }
+
+  // Min Z clearance across all joints
+  const minJointZ = Math.min(...jointsXZ.map(j => j.y));
+  const wallOk = minJointZ >= wallLimitZ;
+
+  // Actual achieved screen position (if clamped)
+  const achievedWrist = new THREE.Vector3(jointsXZ[jointsXZ.length - 1].x, collarY + clampedDY, jointsXZ[jointsXZ.length - 1].y);
+  const achievedVesa = achievedWrist.clone().addScaledVector(frontDir, armSpec.headLen);
+  const achievedScreen = achievedVesa.clone().addScaledVector(frontDir, vesaDepth);
+
+  return {
+    reachable: reachOk && vertOk,
+    reachOk,
+    vertOk,
+    wallOk,
+    minJointZ,
+    dist,
+    maxReach,
+    margin: maxReach - dist,
+    collarY,
+    jointsXZ,
+    achievedWrist,
+    achievedVesa,
+    achievedScreen,
+    targetScreen: new THREE.Vector3(screenWorldX, screenWorldY, screenWorldZ),
+    swRad
+  };
+}
+
+function findValidClampZone() {
+  const armSpec = ARMS[state.armKey];
+  const poleZ = state.wallGap + 1.5;
+  const validXs = [];
+  let bestX = null;
+  let bestScore = -1e9;
+
+  for (let cx = 2; cx <= ROOM.deskWidth - 2; cx += 0.5) {
+    const worldX = DESK_LEFT_X + cx;
+    const rDesk = solveArmIK(armSpec, worldX, poleZ, state.positions.desk.deskH, state.collarH, state.positions.desk);
+    const rSim  = solveArmIK(armSpec, worldX, poleZ, state.positions.sim.deskH, state.collarH, state.positions.sim);
+    if (rDesk.reachable && rSim.reachable && rDesk.wallOk && rSim.wallOk) {
+      validXs.push(cx);
+      const score = Math.min(rDesk.margin, rSim.margin) + Math.min(rDesk.minJointZ, rSim.minJointZ) * 0.25;
+      if (score > bestScore) {
+        bestScore = score;
+        bestX = cx;
+      }
+    }
+  }
+  return { validXs, bestX };
+}
+
+// ============================================================
+// SCENE UPDATE
+// ============================================================
+function placeLinkBetween(mesh, A, B) {
+  const dir = B.clone().sub(A);
+  const len = dir.length();
+  mesh.scale.set(Math.max(0.1, len), 1, 1);
+  mesh.position.copy(A).addScaledVector(dir, 0.5);
+  mesh.lookAt(B);
+  mesh.rotateY(Math.PI / 2);
+}
+
+function updateScene(isAnimating = false) {
+  // Keep walnut dresser synced to dresserEdgeZ
+  dresserGroup.position.z = state.dresserEdgeZ + ROOM.dresserW / 2;
+
+  // Position stationGroup according to active room layout
+  if (state.layout === 'east') {
+    stationGroup.position.set(0, 0, 0);
+    stationGroup.rotation.y = 0;
+    pcGroup.position.set(ROOM.widthX - 5.5, 0, 13);
+    pcGroup.rotation.y = 0;
+    towerFanGroup.position.set(ROOM.widthX - 6, 0, 74);
+    towerFanGroup.rotation.y = 0;
+  } else {
+    // South wall layout: PC tower in SE corner (left of Playseat), Playseat next, desk to the right
+    const southDeskLeftZ = state.cornerMargin + ROOM.rigWidth + state.rigGap;
+    stationGroup.position.set(ROOM.widthX, 0, southDeskLeftZ - DESK_LEFT_X);
+    stationGroup.rotation.y = -Math.PI / 2;
+    // Place 9"x17.5" PC tower in the SE corner slot on the left side of the Playseat (facing North)
+    pcGroup.position.set(ROOM.widthX - ROOM.pcD / 2 - 2.75, 0, Math.max(ROOM.pcW / 2 + 0.5, state.cornerMargin / 2));
+    pcGroup.rotation.y = -Math.PI / 2;
+    // Relocate tower fan to the newly open East wall near the couch (no clipping!)
+    towerFanGroup.position.set(48, 0, 7);
+    towerFanGroup.rotation.y = Math.PI / 2;
+  }
+
+  const armSpec = ARMS[state.armKey];
+  const deskCenterX = DESK_LEFT_X + ROOM.deskWidth / 2;
+  const deskCenterZ = state.wallGap + ROOM.deskDepth / 2;
+
+  // Desk height & position
+  deskTopGroup.position.set(deskCenterX, anim.deskH - ROOM.deskThick / 2, deskCenterZ);
+  deskLegsLower.position.set(deskCenterX, 0, deskCenterZ);
+  deskLegsUpper.position.set(deskCenterX, anim.deskH - ROOM.deskThick, deskCenterZ);
+
+  // Playseat Challenge X position (exact 20.5" wide x 63" long)
+  const rigCenterX = DESK_LEFT_X - state.rigGap - ROOM.rigWidth / 2;
+  const rigCenterZ = state.rigWall + ROOM.rigLength / 2;
+  rigGroup.position.set(rigCenterX, 0, rigCenterZ);
+  rigGroup.rotation.y = THREE.MathUtils.degToRad(state.rigYaw);
+  eyeMarker.position.set(0, state.driverEyeY, 16);
+
+  // Office chair position (tucked slightly aside in Sim mode)
+  chairGroup.position.set(
+    state.mode === 'desk' ? deskCenterX + 2 : deskCenterX + 22,
+    0,
+    state.mode === 'desk' ? deskCenterZ + 28 : deskCenterZ + 44
+  );
+  chairGroup.rotation.y = state.mode === 'desk' ? 0.12 : -0.55;
+
+  // Solve IK for live animated pose
+  const poleX = DESK_LEFT_X + state.clampX;
+  const poleZ = state.wallGap + 1.5;
+  const ik = solveArmIK(armSpec, poleX, poleZ, anim.deskH, state.collarH, anim);
+
+  // Position pole & clamp
+  armParts.clampPlate.visible = (state.armKey === 'ergotron_ext');
+  armParts.clampPlate.position.set(poleX, anim.deskH + 0.18, poleZ);
+  armParts.clampBody.position.set(poleX, anim.deskH - 0.6, poleZ);
+  armParts.pole.scale.set(1, armSpec.poleHeight, 1);
+  armParts.pole.position.set(poleX, anim.deskH + armSpec.poleHeight / 2, poleZ);
+  armParts.collar.position.set(poleX, ik.collarY, poleZ);
+
+  // Position horizontal extension links & elbows
+  const segCount = armSpec.segments.length;
+  for (let i = 0; i < 2; i++) {
+    const visible = i < segCount;
+    armParts.links[i].visible = visible;
+    armParts.elbows[i].visible = visible;
+    if (visible) {
+      const A = new THREE.Vector3(ik.jointsXZ[i].x, ik.collarY, ik.jointsXZ[i].y);
+      const B = new THREE.Vector3(ik.jointsXZ[i + 1].x, ik.collarY, ik.jointsXZ[i + 1].y);
+      placeLinkBetween(armParts.links[i], A, B);
+      armParts.elbows[i].position.copy(B);
+      // Highlight elbow red if colliding with east wall
+      armParts.elbows[i].material = (B.z < 1.0)
+        ? new THREE.MeshStandardMaterial({ color: 0xe55353, emissive: 0x551111 })
+        : matArmMetal;
+    }
+  }
+
+  // Lift arm from last elbow to wrist
+  const lastElbow = new THREE.Vector3(ik.jointsXZ[segCount].x, ik.collarY, ik.jointsXZ[segCount].y);
+  placeLinkBetween(armParts.liftArm, lastElbow, ik.achievedWrist);
+  armParts.wrist.position.copy(ik.achievedWrist);
+  placeLinkBetween(armParts.head, ik.achievedWrist, ik.achievedVesa);
+  armParts.vesaPlate.position.copy(ik.achievedVesa);
+  armParts.vesaPlate.rotation.y = ik.swRad;
+
+  // Curved monitor at achieved screen position
+  monitorGroup.position.copy(ik.achievedScreen);
+  monitorGroup.rotation.y = ik.swRad;
+
+  // Red target ghost when out of reach
+  ghostTargetMesh.visible = !ik.reachable;
+  ghostTargetMesh.position.copy(ik.targetScreen);
+  ghostTargetMesh.rotation.y = ik.swRad;
+
+  // Inactive mode ghost
+  const otherKey = state.mode === 'desk' ? 'sim' : 'desk';
+  const otherPos = state.positions[otherKey];
+  ghostOtherMesh.visible = state.showGhost;
+  ghostOtherMesh.position.set(DESK_LEFT_X + otherPos.mx, otherPos.my, state.wallGap + otherPos.mz);
+  ghostOtherMesh.rotation.y = THREE.MathUtils.degToRad(otherPos.swivel);
+
+  // Reach ring update
+  overlaysGroup.visible = state.showGrid;
+  stationGroup.remove(reachRing);
+  reachRing.geometry.dispose();
+  reachRing = createDashedCircle(ik.maxReach, ik.reachable ? 0xd9822b : 0xe55353);
+  reachRing.visible = state.showGrid;
+  reachRing.position.set(poleX, anim.deskH + 0.3, poleZ);
+  stationGroup.add(reachRing);
+
+  // Room visibility toggle
+  roomGroup.visible = state.showWalls;
+
+  // Update HUD metrics when not mid-frame spam
+  if (!isAnimating) updateHUD();
+}
+
+function updateHUD() {
+  const armSpec = ARMS[state.armKey];
+  const poleX = DESK_LEFT_X + state.clampX;
+  const poleZ = state.wallGap + 1.5;
+
+  const rDesk = solveArmIK(armSpec, poleX, poleZ, state.positions.desk.deskH, state.collarH, state.positions.desk);
+  const rSim  = solveArmIK(armSpec, poleX, poleZ, state.positions.sim.deskH, state.collarH, state.positions.sim);
+  const { validXs, bestX } = findValidClampZone();
+
+  const mDesk = document.getElementById('m-desk');
+  const mSim  = document.getElementById('m-sim');
+  const mZone = document.getElementById('m-zone');
+  const mWall = document.getElementById('m-wall');
+
+  function formatReach(r) {
+    if (!r.vertOk) {
+      return { text: 'Height out of range', cls: 'err' };
+    }
+    if (!r.reachOk) {
+      return { text: `${Math.abs(r.margin).toFixed(1)}″ short`, cls: 'err' };
+    }
+    return { text: `+${r.margin.toFixed(1)}″ spare`, cls: 'ok' };
+  }
+  const fDesk = formatReach(rDesk);
+  const fSim  = formatReach(rSim);
+  mDesk.textContent = fDesk.text;
+  mDesk.className = 'metric-val ' + fDesk.cls;
+
+  mSim.textContent = fSim.text;
+  mSim.className = 'metric-val ' + fSim.cls;
+
+  mZone.textContent = validXs.length
+    ? `${validXs[0].toFixed(1)}″ – ${validXs[validXs.length - 1].toFixed(1)}″`
+    : 'None';
+  mZone.className = 'metric-val ' + (validXs.length ? 'ok' : 'err');
+
+  const minWall = Math.min(rDesk.minJointZ, rSim.minJointZ);
+  mWall.textContent = minWall >= 1.0 ? `${minWall.toFixed(1)}″ clear` : `Hits wall!`;
+  mWall.className = 'metric-val ' + (minWall >= 1.0 ? 'ok' : 'err');
+
+  // Status card
+  const card = document.getElementById('status-card');
+  const heading = document.getElementById('status-heading');
+  const detail = document.getElementById('status-detail');
+  const autoBtn = document.getElementById('btn-auto-clamp');
+
+  const bothOk = rDesk.reachable && rSim.reachable && rDesk.wallOk && rSim.wallOk;
+  if (bothOk) {
+    card.className = 'status-card ok';
+    heading.textContent = 'Both positions reachable & wall-clear';
+    detail.textContent = `Clamp at ${state.clampX.toFixed(1)}″ works for both Desk and Sim modes with ${Math.min(rDesk.margin, rSim.margin).toFixed(1)}″ reach margin.`;
+    autoBtn.style.display = 'none';
+  } else if (bestX !== null) {
+    card.className = 'status-card warn';
+    heading.textContent = 'Move the mount';
+    detail.textContent = `Current clamp fails ${!rDesk.reachable ? 'Desk reach' : !rSim.reachable ? 'Sim reach' : 'east-wall clearance'}. Optimal spot is ${bestX.toFixed(1)}″ from left edge.`;
+    autoBtn.style.display = 'block';
+    autoBtn.onclick = () => {
+      state.clampX = bestX;
+      document.getElementById('s-clamp').value = bestX;
+      document.getElementById('v-clamp').textContent = `${bestX.toFixed(1)}″`;
+      updateScene();
+    };
+  } else {
+    card.className = 'status-card err';
+    heading.textContent = 'No single clamp spot fits both';
+    detail.textContent = 'Try bringing the Sim monitor closer, lowering Sim desk height, increasing east wall gap, or using the 9″ extension.';
+    autoBtn.style.display = 'none';
+  }
+
+  const hwWarn = document.getElementById('hw-warning');
+  if (armSpec.warning) {
+    hwWarn.style.display = 'block';
+    hwWarn.textContent = '⚠ ' + armSpec.warning;
+  } else {
+    hwWarn.style.display = 'none';
+  }
+
+  // South-window corner wingtip & dresser clearance check
+  const cornerWarn = document.getElementById('corner-warning');
+  if (state.layout === 'south') {
+    const southDeskLeftZ = state.cornerMargin + ROOM.rigWidth + state.rigGap;
+    const deskRightZ = southDeskLeftZ + ROOM.deskWidth;
+    const dresserFrontZ = state.dresserEdgeZ;
+    const dresserGap = dresserFrontZ - deskRightZ;
+    const rigToCouchGap = (ROOM.widthX - state.rigWall - ROOM.rigLength) - ROOM.couchDepth;
+    // Sim monitor left wingtip distance from East wall (Z=0)
+    const simCenterZ = southDeskLeftZ + state.positions.sim.mx;
+    const swRad = THREE.MathUtils.degToRad(state.positions.sim.swivel);
+    const halfW = 18.15;
+    const leftEdgeZ = simCenterZ - halfW * Math.cos(swRad);
+    if (leftEdgeZ < 1.0) {
+      const needed = (state.cornerMargin + (1.0 - leftEdgeZ)).toFixed(1);
+      cornerWarn.style.display = 'block';
+      cornerWarn.textContent = `⚠ Corner clearance: 39″ monitor left edge is within ${leftEdgeZ.toFixed(1)}″ of East wall in Sim mode (needs ≥1.0″). Increase "Rig left side from east wall" to ≥${needed}″.`;
+    } else if (dresserGap < 0) {
+      cornerWarn.style.display = 'block';
+      cornerWarn.textContent = `⚠ Desk overlaps walnut dresser by ${Math.abs(dresserGap).toFixed(1)}″! Reduce "Rig left side from east wall" or move the dresser.`;
+    } else {
+      cornerWarn.style.display = 'block';
+      cornerWarn.style.color = '#8ce0b3';
+      cornerWarn.style.borderColor = 'rgba(56,184,124,0.35)';
+      cornerWarn.style.background = 'rgba(56,184,124,0.1)';
+      const pcFitsLeft = state.cornerMargin >= ROOM.pcW + 0.5;
+      cornerWarn.textContent = `✓ Fits 121″×121″ room! Monitor clears East wall by ${leftEdgeZ.toFixed(1)}″ · ${pcFitsLeft ? 'PC fits in SE corner left of rig' : 'Need ≥9.5″ corner gap for 9″ PC'} · ${dresserGap.toFixed(1)}″ gap to dresser · ${rigToCouchGap.toFixed(0)}″ rig-to-couch.`;
+    }
+    if (leftEdgeZ < 1.0 || dresserGap < 0) {
+      cornerWarn.style.color = '#ff9e9e';
+      cornerWarn.style.borderColor = 'rgba(229,83,83,0.45)';
+      cornerWarn.style.background = 'rgba(229,83,83,0.12)';
+    }
+  } else {
+    cornerWarn.style.display = 'none';
+  }
+}
+
+// ============================================================
+// CAMERA PRESETS
+// ============================================================
+let camTween = null;
+function setCameraPreset(name) {
+  document.querySelectorAll('[data-cam]').forEach(b => b.classList.toggle('active', b.dataset.cam === name));
+  stationGroup.updateMatrixWorld(true);
+  const toWorld = (v) => v.clone().applyMatrix4(stationGroup.matrixWorld);
+  const deskX = DESK_LEFT_X + ROOM.deskWidth / 2;
+  let pos, target;
+  if (name === 'overview') {
+    if (state.layout === 'east') {
+      pos = new THREE.Vector3(24, 62, 118);
+      target = new THREE.Vector3(78, 30, 26);
+    } else {
+      // Looking SE/S toward the South window, SE corner Playseat, and desk to the right
+      pos = new THREE.Vector3(28, 66, 122);
+      target = new THREE.Vector3(114, 30, 48);
+    }
+  } else if (name === 'desk') {
+    pos = toWorld(new THREE.Vector3(deskX, 54, 78));
+    target = toWorld(new THREE.Vector3(deskX, 36, 12));
+  } else if (name === 'driver') {
+    const rigX = DESK_LEFT_X - state.rigGap - ROOM.rigWidth / 2;
+    const rigZ = state.rigWall + ROOM.rigLength / 2;
+    const yaw = THREE.MathUtils.degToRad(state.rigYaw);
+    const eyeLocal = new THREE.Vector3(
+      rigX + Math.sin(yaw) * 16,
+      state.driverEyeY + 2,
+      rigZ + Math.cos(yaw) * 16
+    );
+    pos = toWorld(eyeLocal);
+    target = toWorld(new THREE.Vector3(
+      DESK_LEFT_X + state.positions.sim.mx,
+      state.positions.sim.my,
+      state.wallGap + state.positions.sim.mz
+    ));
+  } else if (name === 'top') {
+    pos = new THREE.Vector3(60, 175, 62);
+    target = new THREE.Vector3(60, 0, 60);
+  }
+  camTween = { fromPos: camera.position.clone(), toPos: pos, fromTgt: controls.target.clone(), toTgt: target, t: 0 };
+}
+
+// Initial camera (instant)
+camera.position.set(24, 62, 118);
+controls.target.set(78, 30, 26);
+controls.update();
+
+// ============================================================
+// UI WIRING
+// ============================================================
+function syncModeSliders() {
+  const p = state.positions[state.mode];
+  document.getElementById('lbl-mode-tag').textContent = state.mode === 'desk' ? 'Desk' : 'Sim';
+  document.getElementById('btn-mode-desk').classList.toggle('active', state.mode === 'desk');
+  document.getElementById('btn-mode-sim').classList.toggle('active', state.mode === 'sim');
+
+  const pairs = [
+    ['s-mx', 'v-mx', p.mx, '″'],
+    ['s-mz', 'v-mz', p.mz, '″'],
+    ['s-my', 'v-my', p.my, '″'],
+    ['s-swivel', 'v-swivel', p.swivel, '°'],
+    ['s-deskh', 'v-deskh', p.deskH, '″']
+  ];
+  for (const [sid, vid, val, unit] of pairs) {
+    document.getElementById(sid).value = val;
+    document.getElementById(vid).textContent = (unit === '°' ? `${val}°` : `${Number(val).toFixed(1)}″`);
+  }
+}
+
+function setLayout(layout) {
+  state.layout = layout;
+  document.getElementById('btn-layout-east').classList.toggle('active', layout === 'east');
+  document.getElementById('btn-layout-south').classList.toggle('active', layout === 'south');
+  document.getElementById('field-corner-margin').style.display = layout === 'south' ? 'block' : 'none';
+  document.getElementById('field-dresser-z').style.display = layout === 'south' ? 'block' : 'none';
+  document.getElementById('lbl-wall-metric').textContent = layout === 'south' ? 'South Wall Clearance' : 'East Wall Clearance';
+  document.getElementById('lbl-wallgap').textContent = layout === 'south' ? 'Desk gap from south wall' : 'Desk gap from east wall';
+  document.getElementById('lbl-rigwall').textContent = layout === 'south' ? 'Rig front from south wall' : 'Rig front from east wall';
+  updateScene();
+  setCameraPreset('overview');
+}
+document.getElementById('btn-layout-east').onclick  = () => setLayout('east');
+document.getElementById('btn-layout-south').onclick = () => setLayout('south');
+
+document.getElementById('btn-mode-desk').onclick = () => { state.mode = 'desk'; syncModeSliders(); updateHUD(); };
+document.getElementById('btn-mode-sim').onclick  = () => { state.mode = 'sim'; syncModeSliders(); updateHUD(); };
+document.querySelectorAll('[data-cam]').forEach(btn => {
+  btn.onclick = () => setCameraPreset(btn.dataset.cam);
+});
+
+document.getElementById('sel-arm').onchange = e => {
+  state.armKey = e.target.value;
+  const maxCol = ARMS[state.armKey].poleHeight - 1;
+  document.getElementById('s-collar').max = maxCol;
+  if (state.collarH > maxCol) {
+    state.collarH = maxCol;
+    document.getElementById('s-collar').value = maxCol;
+    document.getElementById('v-collar').textContent = `${maxCol.toFixed(1)}″`;
+  }
+  updateScene();
+};
+document.getElementById('sel-curve').onchange = e => {
+  state.curveR_mm = Number(e.target.value);
+  rebuildMonitorMeshes();
+  updateScene();
+};
+
+function bindSlider(id, valId, unit, setter) {
+  const el = document.getElementById(id);
+  el.addEventListener('input', () => {
+    const v = parseFloat(el.value);
+    document.getElementById(valId).textContent = unit === '°' ? `${v}°` : `${v.toFixed(1)}″`;
+    setter(v);
+    updateScene();
+  });
+}
+
+bindSlider('s-clamp',   'v-clamp',   '″', v => state.clampX = v);
+bindSlider('s-collar',  'v-collar',  '″', v => state.collarH = v);
+bindSlider('s-wallgap', 'v-wallgap', '″', v => state.wallGap = v);
+bindSlider('s-mx',      'v-mx',      '″', v => { state.positions[state.mode].mx = v; anim.mx = v; });
+bindSlider('s-mz',      'v-mz',      '″', v => { state.positions[state.mode].mz = v; anim.mz = v; });
+bindSlider('s-my',      'v-my',      '″', v => { state.positions[state.mode].my = v; anim.my = v; });
+bindSlider('s-swivel',  'v-swivel',  '°', v => { state.positions[state.mode].swivel = v; anim.swivel = v; });
+bindSlider('s-deskh',   'v-deskh',   '″', v => { state.positions[state.mode].deskH = v; anim.deskH = v; });
+bindSlider('s-cornermargin', 'v-cornermargin', '″', v => state.cornerMargin = v);
+bindSlider('s-dresserz', 'v-dresserz', '″', v => state.dresserEdgeZ = v);
+bindSlider('s-riggap',  'v-riggap',  '″', v => state.rigGap = v);
+bindSlider('s-rigwall', 'v-rigwall', '″', v => state.rigWall = v);
+bindSlider('s-rigyaw',  'v-rigyaw',  '°', v => state.rigYaw = v);
+bindSlider('s-eye',     'v-eye',     '″', v => state.driverEyeY = v);
+
+document.getElementById('chk-walls').onchange = e => { state.showWalls = e.target.checked; updateScene(); };
+document.getElementById('chk-grid').onchange  = e => { state.showGrid  = e.target.checked; updateScene(); };
+document.getElementById('chk-ghost').onchange = e => { state.showGhost = e.target.checked; updateScene(); };
+
+document.getElementById('btn-collapse').onclick = () => document.getElementById('sidebar').classList.add('collapsed');
+document.getElementById('btn-expand').onclick   = () => document.getElementById('sidebar').classList.remove('collapsed');
+
+document.getElementById('btn-copy').onclick = () => {
+  const d = state.positions.desk, s = state.positions.sim;
+  const txt = [
+    `Desk Arm Planner 3D Summary`,
+    `Arm: ${ARMS[state.armKey].name} | Monitor: LG 39" 5K2K (${state.curveR_mm}R)`,
+    `Clamp: ${state.clampX.toFixed(1)}" from desk left edge | Collar: ${state.collarH.toFixed(1)}" above desk | East wall gap: ${state.wallGap.toFixed(1)}"`,
+    `Desk mode: Desk H=${d.deskH}", Screen=(X=${d.mx}", Z=${d.mz}", Y=${d.my}", Swivel=${d.swivel}°)`,
+    `Sim mode:  Desk H=${s.deskH}", Screen=(X=${s.mx}", Z=${s.mz}", Y=${s.my}", Swivel=${s.swivel}°)`
+  ].join('\n');
+  navigator.clipboard?.writeText(txt);
+  const btn = document.getElementById('btn-copy');
+  btn.textContent = 'Copied!';
+  setTimeout(() => btn.textContent = 'Copy setup summary', 1500);
+};
+
+// Initial sync
+syncModeSliders();
+updateScene();
+
+// ============================================================
+// RENDER LOOP
+// ============================================================
+function animate() {
+  requestAnimationFrame(animate);
+
+  // Smoothly interpolate Desk <-> Sim transitions
+  const tgt = state.positions[state.mode];
+  let moved = false;
+  for (const k of ['mx', 'mz', 'my', 'swivel', 'deskH']) {
+    const diff = tgt[k] - anim[k];
+    if (Math.abs(diff) > 0.02) {
+      anim[k] += diff * 0.14;
+      moved = true;
+    } else if (diff !== 0) {
+      anim[k] = tgt[k];
+      moved = true;
+    }
+  }
+  if (moved) updateScene(true);
+
+  // Smooth camera preset tween
+  if (camTween) {
+    camTween.t = Math.min(1, camTween.t + 0.06);
+    const e = 1 - Math.pow(1 - camTween.t, 3);
+    camera.position.lerpVectors(camTween.fromPos, camTween.toPos, e);
+    controls.target.lerpVectors(camTween.fromTgt, camTween.toTgt, e);
+    if (camTween.t >= 1) camTween = null;
+  }
+
+  // Auto-hide ceiling fan when viewing from high overhead (Top Plan)
+  fanGroup.visible = state.showWalls && camera.position.y < 110;
+
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>
